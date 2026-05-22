@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Icons } from './Icons';
 
 interface LoginProps {
-  onLogin: (email: string, name: string) => void;
+  onLogin: (email: string, pin: string) => Promise<void>;
   onSwitchToRegister: () => void;
   onGoogleSignIn?: () => void;
 }
@@ -20,7 +20,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSwitchToRegister, onGoogleSign
     setPassword(val);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
@@ -31,22 +31,13 @@ const Login: React.FC<LoginProps> = ({ onLogin, onSwitchToRegister, onGoogleSign
       return;
     }
     
-    // Simulate API call / Local Validation
-    setTimeout(() => {
-      // Check if user exists in local storage
-      const existingUsersStr = localStorage.getItem('chix9ja_users');
-      const existingUsers = existingUsersStr ? JSON.parse(existingUsersStr) : {};
-      const user = existingUsers[email.toLowerCase()];
-
-      if (user) {
-        onLogin(email, user.name);
-        setIsLoading(false);
-      } else {
-        // User not found logic
-        setError('Account not registered on this device.');
-        setIsLoading(false);
-      }
-    }, 1000);
+    try {
+      await onLogin(email, password);
+      setIsLoading(false);
+    } catch (err: any) {
+      setError(err?.message || 'Login failed. Please check your credentials.');
+      setIsLoading(false);
+    }
   };
 
   return (

@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Icons } from './Icons';
 
 interface RegisterProps {
-  onRegister: (name: string, email: string) => void;
+  onRegister: (name: string, email: string, pin: string) => Promise<void>;
   onSwitchToLogin: () => void;
   onGoogleSignIn?: () => void;
 }
@@ -21,7 +21,7 @@ const Register: React.FC<RegisterProps> = ({ onRegister, onSwitchToLogin, onGoog
     setPassword(val);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -31,12 +31,13 @@ const Register: React.FC<RegisterProps> = ({ onRegister, onSwitchToLogin, onGoog
     }
 
     setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      onRegister(name, email);
+    try {
+      await onRegister(name, email, password);
       setIsLoading(false);
-    }, 1000);
+    } catch (err: any) {
+      setError(err?.message || 'Registration failed.');
+      setIsLoading(false);
+    }
   };
 
   return (

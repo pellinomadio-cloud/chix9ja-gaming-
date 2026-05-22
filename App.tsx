@@ -38,7 +38,7 @@ import SystemNotification from './components/SystemNotification';
 import { Icons } from './components/Icons';
 import { User, Plan, Transaction, RewardStatus } from './types';
 import { GoogleGenAI, Modality } from "@google/genai";
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from './components/firebase';
 
@@ -462,68 +462,122 @@ const App: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, [activeTab, currentView, handleBack]);
 
-  const handleRegister = (name: string, email: string) => {
-    const initialTransaction: Transaction = {
-        id: `trx-${Date.now()}`,
-        type: 'credit',
-        amount: 10000.00,
-        description: 'Welcome Bonus',
-        date: new Date().toISOString(),
-        status: 'success'
-    };
-    const newUser: User = {
-      name, email, balance: 10000.00, isSubscribed: false,
-      transactions: [initialTransaction],
-      rewardStatus: { currentDay: 1, lastClaimedTimestamp: 0 },
-      lastTelegramClaimTimestamp: 0,
-      lastTelegramClaim2Timestamp: 0,
-      lastWhatsAppClaimTimestamp: 0,
-      notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
-      hasPlayedWelcomeVoice: false
-    };
-    saveUserToStorage(newUser);
-    localStorage.setItem('chix9ja_active_session', email.toLowerCase());
-    setUser(newUser);
-    setCurrentView('dashboard');
-    setActiveTab('home');
-    setShowWelcomeAd(true);
-    setHasUnreadNotifications(true);
+  const handleRegister = async (name: string, email: string, pin: string) => {
+    const emailLower = email.toLowerCase();
+    
+    // Check if user already exists in Firestore under this email
+    try {
+      const userDoc = await getDoc(doc(db, 'users', emailLower));
+      if (userDoc.exists()) {
+        throw new Error('An account with this email address already exists.');
+      }
+    } catch (err: any) {
+      if (err.message === 'An account with this email address already exists.') {
+        throw err;
+      }
+    }
+
+    try {
+      // 1. Create a Firebase Auth email/password credential (using PIN as password, appended securely)
+      await createUserWithEmailAndPassword(auth, emailLower, `${pin}_chix9ja`);
+      
+      // 2. Build the User profile object
+      const initialTransaction: Transaction = {
+          id: `trx-${Date.now()}`,
+          type: 'credit',
+          amount: 10000.00,
+          description: 'Welcome Bonus',
+          date: new Date().toISOString(),
+          status: 'success'
+      };
+      
+      const newUser: User = {
+        name,
+        email: emailLower,
+        balance: 10000.00,
+        isSubscribed: false,
+        transactions: [initialTransaction],
+        rewardStatus: { currentDay: 1, lastClaimedTimestamp: 0 },
+        lastTelegramClaimTimestamp: 0,
+        lastTelegramClaim2Timestamp: 0,
+        lastWhatsAppClaimTimestamp: 0,
+        notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
+        hasPlayedWelcomeVoice: false
+      };
+
+      // 3. Save profile to Firestore
+      await setDoc(doc(db, 'users', emailLower), newUser);
+
+      // 4. Save to local storage & active session
+      const lUsers = getStoredUsers();
+      lUsers[emailLower] = newUser;
+      localStorage.setItem('chix9ja_users', JSON.stringify(lUsers));
+      localStorage.setItem('chix9ja_active_session', emailLower);
+
+      setUser(newUser);
+      setCurrentView('dashboard');
+      setActiveTab('home');
+      setShowWelcomeAd(true);
+      setHasUnreadNotifications(true);
+    } catch (err: any) {
+      console.error("Firebase Registration Error", err);
+      if (err?.code === 'auth/email-already-in-use') {
+        throw new Error('An account with this email address already exists.');
+      }
+      throw err;
+    }
   };
 
-  const handleLogin = (email: string, name: string) => {
-    const existingUsers = getStoredUsers();
-    const storedUser = existingUsers[email.toLowerCase()];
-    if (storedUser) {
-        if (!storedUser.transactions) {
-            storedUser.transactions = [{
-                id: 'trx-init', type: 'credit', amount: 10000,
-                description: 'Welcome Bonus', date: new Date().toISOString(), status: 'success'
-            }];
+  const handleLogin = async (email: string, pin: string) => {
+    const emailLower = email.toLowerCase();
+    try {
+      // Try standard sign-in
+      await signInWithEmailAndPassword(auth, emailLower, `${pin}_chix9ja`);
+      
+      // Fetch user profile from Firestore
+      const userDoc = await getDoc(doc(db, 'users', emailLower));
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        
+        const lUsers = getStoredUsers();
+        lUsers[emailLower] = userData;
+        localStorage.setItem('chix9ja_users', JSON.stringify(lUsers));
+        localStorage.setItem('chix9ja_active_session', emailLower);
+        
+        setUser(userData);
+        setCurrentView('dashboard');
+        setActiveTab('home');
+        setHasUnreadNotifications(true);
+      } else {
+        throw new Error('Account details not found in cloud database.');
+      }
+    } catch (err: any) {
+      // Check if user exists on this local device and automatic migration is possible
+      const localUsers = getStoredUsers();
+      const localUser = localUsers[emailLower];
+      if (localUser && (err?.code === 'auth/user-not-found' || err?.code === 'auth/invalid-credential')) {
+        // Automatically migrate this local user to Firebase Auth!
+        try {
+          await createUserWithEmailAndPassword(auth, emailLower, `${pin}_chix9ja`);
+          await setDoc(doc(db, 'users', emailLower), localUser);
+          
+          setUser(localUser);
+          localStorage.setItem('chix9ja_active_session', emailLower);
+          setCurrentView('dashboard');
+          setActiveTab('home');
+          setHasUnreadNotifications(true);
+          return;
+        } catch (createErr: any) {
+          console.error("Automatic cloud migration failed", createErr);
         }
-        if (!storedUser.rewardStatus) storedUser.rewardStatus = { currentDay: 1, lastClaimedTimestamp: 0 };
-        if (storedUser.lastWhatsAppClaimTimestamp === undefined) storedUser.lastWhatsAppClaimTimestamp = 0;
-        saveUserToStorage(storedUser);
-        setUser(storedUser);
-    } else {
-        const initialTransaction: Transaction = {
-            id: `trx-${Date.now()}`, type: 'credit', amount: 10000.00,
-            description: 'Welcome Bonus', date: new Date().toISOString(), status: 'success'
-        };
-        const loggedInUser: User = {
-            name: name || 'User', email, balance: 10000.00, isSubscribed: false,
-            transactions: [initialTransaction],
-            rewardStatus: { currentDay: 1, lastClaimedTimestamp: 0 },
-            lastTelegramClaimTimestamp: 0,
-            lastTelegramClaim2Timestamp: 0,
-            notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES }
-        };
-        setUser(loggedInUser);
-        saveUserToStorage(loggedInUser);
+      }
+      
+      console.error("Firebase Login Error", err);
+      if (err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential' || err?.code === 'auth/user-not-found') {
+        throw new Error('Incorrect email address or 4-digit PIN.');
+      }
+      throw err;
     }
-    localStorage.setItem('chix9ja_active_session', email.toLowerCase());
-    setCurrentView('dashboard');
-    setActiveTab('home');
-    setHasUnreadNotifications(true);
   };
 
   const handleLogout = () => {
@@ -538,9 +592,18 @@ const App: React.FC = () => {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (err) {
-      console.error("Google Sign-In Error", err);
-      alert("Failed to authenticate with Google. Details logged to console.");
+    } catch (err: any) {
+      console.log("Google Sign-In interaction status:", err);
+      // Silence expected user/popup cancellation behaviors so they don't trigger loud, scary error dialogs
+      if (
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        (err?.message && (err.message.includes('popup-closed-by-user') || err.message.includes('cancelled-popup-request')))
+      ) {
+        console.log("Sign-in popup closed or cancelled by the user.");
+        return;
+      }
+      alert(`Failed to authenticate with Google: ${err?.message || err}`);
     }
   };
 
