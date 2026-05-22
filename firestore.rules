@@ -1,0 +1,74 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global default-deny rule
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable, hardened security variables and getters
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(email) {
+      return isSignedIn() && request.auth.token.email.toLowerCase() == email.toLowerCase();
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-+@\\.]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Entity validator helper
+    function isValidUser(data) {
+      return data.name is string && data.name.size() <= 200
+          && data.email is string && data.email.size() <= 200
+          && data.balance is number && data.balance >= 0;
+    }
+
+    // Main Users Document Rules
+    match /users/{email} {
+      allow get: if isOwner(email) || isAdmin();
+      allow list: if isAdmin(); // Regular users are forbidden from blanket listing other users
+      
+      allow create: if isOwner(email) 
+                   && isEmailVerified()
+                   && isValidId(email)
+                   && incoming().email.toLowerCase() == email.toLowerCase()
+                   && isValidUser(incoming())
+                   && incoming().keys().hasAll(['name', 'email', 'balance'])
+                   && incoming().keys().size() >= 3;
+
+      allow update: if isOwner(email)
+                   && isEmailVerified()
+                   && isValidId(email)
+                   && isValidUser(incoming())
+                   && incoming().email.toLowerCase() == existing().email.toLowerCase();
+
+      allow delete: if isAdmin();
+    }
+
+    // Secure Admins Registry (Only manageable via GCP/Firebase Console)
+    match /admins/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}

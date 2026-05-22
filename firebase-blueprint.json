@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account data, subscription status, balances, and settings. Also includes a list of transactions.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the user"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The unique email address of the user"
+        },
+        "balance": {
+          "type": "number",
+          "description": "The current account balance in Naira"
+        },
+        "profileImage": {
+          "type": "string",
+          "description": "Optional profile image URL or base64"
+        },
+        "isSubscribed": {
+          "type": "boolean",
+          "description": "Active subscription status"
+        },
+        "subscriptionPlan": {
+          "type": "string",
+          "description": "The currently active subscription plan type"
+        },
+        "subscriptionExpiryDate": {
+          "type": "number",
+          "description": "Expiry timestamp for subscription"
+        },
+        "transactions": {
+          "type": "array",
+          "description": "List of user transactions"
+        },
+        "rewardStatus": {
+          "type": "object",
+          "description": "User daily claim reward tracking statistics"
+        },
+        "deactivationDate": {
+          "type": "number",
+          "description": "Timestamp of imminent account deactivation"
+        },
+        "imminentDeactivationExpiry": {
+          "type": "number",
+          "description": "Expiry timestamp for warning"
+        },
+        "isVIP": {
+          "type": "boolean",
+          "description": "VIP status flag"
+        },
+        "vipBalance": {
+          "type": "number",
+          "description": "VIP balance, if enabled"
+        },
+        "loanBalance": {
+          "type": "number",
+          "description": "Outstanding loan balance"
+        },
+        "loanExpiry": {
+          "type": "number",
+          "description": "Timestamp for loan repayment deadline"
+        },
+        "notificationPreferences": {
+          "type": "object",
+          "description": "User settings for push/alerts toggles"
+        }
+      },
+      "required": [
+        "name",
+        "email",
+        "balance"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{email}": {
+      "schema": "User",
+      "description": "Global user accounts/profiles keyed by individual emails"
+    }
+  }
+}
